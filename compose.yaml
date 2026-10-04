@@ -1,0 +1,9 @@
+services:
+  cashbackbuddy:
+    build: .
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in .env or your environment}
+      TELEGRAM_ALLOWED_USER_ID: ${TELEGRAM_ALLOWED_USER_ID:?Set TELEGRAM_ALLOWED_USER_ID in .env or your environment}
+    restart: unless-stopped
+    volumes:
+      - ./cards.yaml:/app/cards.yaml:ro

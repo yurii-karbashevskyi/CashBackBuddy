@@ -1,0 +1,11 @@
+timezone: America/New_York
+categories:
+  grocery:
+    aliases: [groceries, supermarket, supermarkets]
+  restaurant:
+    aliases: [restaurants, dining]
+  entertainment:
+    aliases: []
+  shopping:
+    aliases: []
+cards: []
