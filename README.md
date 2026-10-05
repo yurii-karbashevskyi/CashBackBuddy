@@ -6,6 +6,18 @@ Send `grocery`, `groceries`, `restaurant`, `dining`, `entertainment`, or `shoppi
 
 The initial `cards.yaml` has no cards, so a supported query returns `No cards configured yet.` No bank connections, transaction tracking, points valuation, or Telegram editing are included.
 
+## Bot commands
+
+| Command | Response |
+| --- | --- |
+| `/start` | Show usage, supported categories, and cashback limitations. |
+| `/help` | Show the same help as `/start`. |
+| `/categories` | List the category names configured in `cards.yaml`. |
+
+For recommendations, send a category or alias as plain text, such as `grocery` or `dining`—not `/grocery`. Unknown slash commands are ignored.
+
+All commands and category queries work only in the configured user's private chat. Other users and group chats receive no replies.
+
 ## Run with Docker Compose
 
 The included [compose.yaml](compose.yaml) builds the image from [Dockerfile](Dockerfile). No separate manual image build is needed.
