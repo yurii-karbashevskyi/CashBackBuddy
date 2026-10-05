@@ -2,17 +2,37 @@
 
 Personal, read-only Telegram bot for choosing a US credit card by spending category.
 
-Send `grocery`, `groceries`, `restaurant`, `dining`, `entertainment`, or `shopping` to get your cards ranked by published cashback rate. Matching ignores case and surrounding whitespace. `/start` and `/help` explain usage; `/categories` lists choices. Only the configured user's private chat receives replies, including help.
+Send `grocery`, `groceries`, `restaurant`, `dining`, `entertainment`, or `shopping` to get an emoji-led ranking of your top three cards. Matching ignores case and surrounding whitespace. Only the configured user's private chat receives replies, including help.
 
-The initial `cards.yaml` has no cards, so a supported query returns `No cards configured yet.` No bank connections, transaction tracking, points valuation, or Telegram editing are included.
+The initial `cards.yaml` has no cards, so a supported query returns `💳 No cards configured yet.` No bank connections, transaction tracking, or Telegram editing are included.
+
+Example reply (illustrative rates):
+
+```text
+🍽 Dining
+
+🥇 Chase Sapphire Preferred — 3x Chase points ≈ 3%
+🥈 Example Cashback Card — 2%
+🥉 Example Base Card — 1%
+
+Best choice: Chase Sapphire Preferred
+
+🧮 Chase points valued at 1¢ each via Sapphire Preferred’s Chase Travel portal.
+```
+
+Tied highest returns show `Best choices`, including winners outside the top three. Full conditions and benefits are available through `/card`, not repeated in category replies.
 
 ## Bot commands
 
 | Command | Response |
 | --- | --- |
-| `/start` | Show usage, supported categories, and cashback limitations. |
+| `/start` | Show usage, supported categories, and commands. |
 | `/help` | Show the same help as `/start`. |
 | `/categories` | List the category names configured in `cards.yaml`. |
+| `/cards` | List your cards and their detail commands. |
+| `/card <name or ID>` | Full rewards, dates, conditions, benefits, and valuation assumptions. |
+
+Card lookup ignores case. Exact IDs take priority, then exact names; a partial name works if it identifies just one card. Ambiguous matches list choices instead of selecting one. Card IDs must be unique ignoring case.
 
 For recommendations, send a category or alias as plain text, such as `grocery` or `dining`—not `/grocery`. Unknown slash commands are ignored.
 
@@ -76,15 +96,37 @@ cards:
         description: Coverage subject to the card's terms.
 ```
 
-- Required: `timezone`, nonempty `categories`, `cards`; each card needs a unique nonempty `id`, `name`, and nonnegative finite `base_cashback_percent`.
+- Required: `timezone`, nonempty `categories`, `cards`; each card needs a unique nonempty `id`, `name`, and nonnegative finite base rate (`base_cashback_percent` or the Chase points fields below).
 - `rewards`, `benefits`, and `conditions` default to empty lists. Rates are **total percentages**, not additions to base. Reward categories reference canonical category keys, not aliases.
 - Omit both dates for ongoing rewards; otherwise supply both ISO dates. Boundaries are inclusive. Future/expired offers do not apply; the highest active rate or base rate wins.
-- All equal winning offers are displayed separately with all conditions; they are not stackable. All cards appear, ordered by descending rate, then name, then ID.
+- The top three cards appear, ordered by descending cashback-equivalent return, then name, then ID. Full card details show all configured offers and conditions, including future/expired offers with their dates; they are not stackable.
 - Benefit `categories: []` (or omitted) means every category; benefits never affect ranking.
 - Use a valid IANA timezone. Rules are evaluated in that timezone on **each query**, so date transitions need no restart.
 - Data loads once at startup: restart after editing. Invalid types, dates, references, duplicate YAML keys, alias collisions, and boolean/negative/nonfinite rates are rejected. YAML merges that override keys are also rejected; use explicit unique fields.
 
 Rankings do not account for exhausted caps, activation status, or merchant-specific eligibility. They show conditional published rates for you to assess, not guaranteed earnings. Review issuer terms. Keep real card details private; do not commit them to a public repository.
+
+### Chase points versus cashback
+
+For Chase Ultimate Rewards cards, use `rewards_program: chase_ultimate_rewards`, `base_points_per_dollar`, and `points_per_dollar` instead of cashback fields. Do not mix units on a card. Other points programs are not supported.
+
+Example card entry (verify current terms before using):
+
+```yaml
+  - id: sapphire_preferred
+    name: Chase Sapphire Preferred
+    rewards_program: chase_ultimate_rewards
+    base_points_per_dollar: 1
+    rewards:
+      - category: restaurant
+        points_per_dollar: 3
+        conditions:
+          - Eligible dining purchases only.
+```
+
+Ranking formula: **points per dollar × cents per point = estimated reward %**. Newly earned Chase points are valued conservatively at **1¢ each**, assuming redemption through Sapphire Preferred's Chase Travel portal. Thus 3x points ranks equally with 3% cashback; the estimate is travel value, not cash paid back.
+
+The same valuation applies to other Chase cards only if you combine their points into Sapphire Preferred. [Points Boost](https://www.chase.com/travel/guide/travel-benefits/points-boost-offers) is booking-specific and excluded; legacy redemption rates on older eligible points do not apply to new spending. No live portal scraping or account access is required. The default is defined by `CHASE_POINT_VALUE_CENTS` in `rewards.py`.
 
 After editing the host `cards.yaml`, run `docker compose restart` to reload it. No rebuild is needed; the file is mounted read-only in the container.
 

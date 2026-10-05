@@ -1,10 +1,14 @@
-"""Validated static card data and published-rate recommendations."""
+"""Validated static card data and cashback-equivalent recommendations."""
 
 from datetime import date
 import math
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
+
+
+# Newly earned points, redeemed through Sapphire Preferred; no booking-specific boosts.
+CHASE_POINT_VALUE_CENTS = 1
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -100,17 +104,31 @@ def load_cards(path: str) -> dict:
         prefix = f"cards[{index}]"
         _mapping(raw, prefix)
         card_id = _text(raw.get("id"), f"{prefix}.id")
-        if card_id in ids:
+        if card_id.casefold() in ids:
             raise ValueError(f"{prefix}.id: duplicate ID {card_id!r}")
-        ids.add(card_id)
+        ids.add(card_id.casefold())
+        points = "rewards_program" in raw
+        if points and raw["rewards_program"] != "chase_ultimate_rewards":
+            raise ValueError(f"{prefix}.rewards_program: only chase_ultimate_rewards is supported")
+        if not points and "base_points_per_dollar" in raw:
+            raise ValueError(f"{prefix}.rewards_program: required for points cards")
+        rate_field = "points_per_dollar" if points else "cashback_percent"
+        other_field = "cashback_percent" if points else "points_per_dollar"
+        base_field = "base_" + rate_field
+        if "base_" + other_field in raw:
+            raise ValueError(f"{prefix}.base_{other_field}: cannot mix points and cashback")
         card = {"id": card_id, "name": _text(raw.get("name"), f"{prefix}.name"),
-                "base_cashback_percent": _rate(raw.get("base_cashback_percent"), f"{prefix}.base_cashback_percent"),
+                base_field: _rate(raw.get(base_field), f"{prefix}.{base_field}"),
                 "rewards": [], "benefits": []}
+        if points:
+            card["rewards_program"] = raw["rewards_program"]
         for n, raw_rule in enumerate(_list(raw.get("rewards", []), f"{prefix}.rewards")):
             field = f"{prefix}.rewards[{n}]"
             _mapping(raw_rule, field)
+            if other_field in raw_rule:
+                raise ValueError(f"{field}.{other_field}: cannot mix points and cashback")
             rule = {"category": category_ref(raw_rule.get("category"), f"{field}.category"),
-                    "cashback_percent": _rate(raw_rule.get("cashback_percent"), f"{field}.cashback_percent"),
+                    rate_field: _rate(raw_rule.get(rate_field), f"{field}.{rate_field}"),
                     "conditions": [_text(c, f"{field}.conditions") for c in
                                    _list(raw_rule.get("conditions", []), f"{field}.conditions")]}
             if "starts_on" in raw_rule or "ends_on" in raw_rule:
@@ -143,10 +161,16 @@ def normalize_category(data: dict, text: str) -> str | None:
 def recommend(data: dict, category: str, today: date) -> list[dict]:
     results = []
     for card in data["cards"]:
+        points = "rewards_program" in card
+        rate_field = "points_per_dollar" if points else "cashback_percent"
         active = [rule for rule in card["rewards"] if rule["category"] == category
                   and ("starts_on" not in rule or rule["starts_on"] <= today <= rule["ends_on"])]
-        rate = max([card["base_cashback_percent"], *[r["cashback_percent"] for r in active]])
-        results.append({"id": card["id"], "name": card["name"], "cashback_percent": rate,
-                        "rules": [r for r in active if r["cashback_percent"] == rate],
-                        "benefits": [b for b in card["benefits"] if not b["categories"] or category in b["categories"]]})
-    return sorted(results, key=lambda r: (-r["cashback_percent"], r["name"].casefold(), r["id"]))
+        rate = max([card["base_" + rate_field], *[r[rate_field] for r in active]])
+        result = {"id": card["id"], "name": card["name"],
+                  "reward_percent": rate * CHASE_POINT_VALUE_CENTS if points else rate,
+                  "rules": [r for r in active if r[rate_field] == rate],
+                  "benefits": [b for b in card["benefits"] if not b["categories"] or category in b["categories"]]}
+        if points:
+            result["points_per_dollar"] = rate
+        results.append(result)
+    return sorted(results, key=lambda r: (-r["reward_percent"], r["name"].casefold(), r["id"]))

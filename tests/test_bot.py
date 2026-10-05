@@ -20,16 +20,55 @@ def update(user_id=123, chat_type="private", text=" GROCERIES "):
 
 class FormatTests(unittest.TestCase):
     def test_empty_and_complete_recommendation(self):
-        self.assertEqual(bot.format_recommendations("grocery", []), "No cards configured yet.")
-        result = [{"id": "a", "name": "Alpha", "cashback_percent": 5,
+        self.assertEqual(bot.format_recommendations("grocery", []), "💳 No cards configured yet.")
+        result = [{"id": "a", "name": "Alpha", "reward_percent": 5,
                    "rules": [{"starts_on": date(2026, 10, 1), "ends_on": date(2026, 12, 31),
                               "conditions": ["Activation required", "$1,500 cap"]},
                              {"conditions": ["Excludes clubs"]}],
                    "benefits": [{"name": "Protection", "description": "Terms apply"}]}]
         text = bot.format_recommendations("grocery", result)
-        for required in ["Alpha", "5%", "2026-10-01", "2026-12-31", "Activation required",
-                         "$1,500 cap", "Excludes clubs", "Protection", "Terms apply", "caps", "activation", "merchant", "not stackable"]:
+        self.assertEqual(text, "🛒 Groceries\n\n🥇 Alpha — 5%\n\nBest choice: Alpha")
+
+    def test_top_three_points_and_ties_do_not_hide_other_winners(self):
+        results = [{"id": str(i), "name": name, "reward_percent": 3,
+                    "rules": [], "benefits": []}
+                   for i, name in enumerate(["Alpha", "Beta", "Gamma", "Delta"])]
+        results[0]["points_per_dollar"] = 3
+        text = bot.format_recommendations("restaurant", results)
+        self.assertIn("🍽 Dining", text)
+        self.assertIn("🥇 Alpha — 3x Chase points ≈ 3%", text)
+        self.assertIn("🥈 Beta — 3%", text)
+        self.assertIn("🥉 Gamma — 3%", text)
+        self.assertNotIn("Delta —", text)
+        self.assertIn("Best choices: Alpha, Beta, Gamma, Delta", text)
+        self.assertIn("1¢", text)
+
+    def test_full_card_details_include_all_rules_benefits_and_valuation(self):
+        card = {"id": "sapphire", "name": "Chase Sapphire Preferred",
+                "rewards_program": "chase_ultimate_rewards", "base_points_per_dollar": 1,
+                "rewards": [{"category": "restaurant", "points_per_dollar": 3,
+                             "conditions": ["Eligible dining only"]},
+                            {"category": "grocery", "points_per_dollar": 5,
+                             "starts_on": date(2026, 10, 1), "ends_on": date(2026, 12, 31),
+                             "conditions": ["Activation required", "$1,500 cap"]}],
+                "benefits": [{"name": "Protection", "description": "Terms apply", "categories": ["shopping"]}]}
+        text = bot.format_card(card)
+        for required in ["💳 Chase Sapphire Preferred", "1x", "🍽 Dining", "3x", "🛒 Groceries", "5x",
+                         "2026-10-01", "2026-12-31", "Eligible dining only", "Activation required",
+                         "$1,500 cap", "Protection", "Terms apply", "Shopping", "1¢", "Points Boost",
+                         "caps", "activation", "merchant", "not stackable"]:
             self.assertIn(required, text)
+
+    def test_chase_winner_outside_top_three_keeps_portal_valuation_note(self):
+        results = [{"id": str(i), "name": name, "reward_percent": 3,
+                    "rules": [], "benefits": []}
+                   for i, name in enumerate(["Alpha", "Beta", "Gamma", "Sapphire"])]
+        results[3]["points_per_dollar"] = 3
+        text = bot.format_recommendations("restaurant", results)
+        self.assertIn("Best choices: Alpha, Beta, Gamma, Sapphire", text)
+        self.assertIn("1¢", text)
+        self.assertIn("Sapphire Preferred", text)
+        self.assertIn("Chase Travel", text)
 
     def test_splitting_preserves_text_and_utf16_limits(self):
         for text in ["", "short", "Condition " + "x" * 12000, "😀" * 5000,
@@ -74,13 +113,13 @@ class FormatTests(unittest.TestCase):
 class HandlerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.data = {"timezone": "America/New_York", "categories": {"grocery": {"aliases": ["groceries"]}}, "cards": []}
-        self.context = SimpleNamespace(bot_data={"data": self.data, "allowed_user_id": 123}, error=RuntimeError("failure"))
+        self.context = SimpleNamespace(bot_data={"data": self.data, "allowed_user_id": 123}, error=RuntimeError("failure"), args=[])
 
     async def test_no_responses_to_other_users_or_groups(self):
         for denied in [update(456), update(123, "group"), Update(1)]:
             self.assertFalse(bot.is_authorized(denied, 123))
             with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
-                for handler in [bot.query, bot.help_command, bot.categories_command, bot.error_handler]:
+                for handler in [bot.query, bot.help_command, bot.categories_command, bot.cards_command, bot.card_command, bot.error_handler]:
                     with self.assertLogs("bot", level="ERROR") if handler == bot.error_handler else _no_logs():
                         await handler(denied, self.context)
                 reply.assert_not_awaited()
@@ -92,7 +131,7 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
             await bot.query(update(), self.context)
             recommend.assert_called_once_with(self.data, "grocery", date(2026, 12, 31))
             self.assertEqual(str(clock.now.call_args.args[0]), "America/New_York")
-            reply.assert_awaited_once_with("No cards configured yet.")
+            reply.assert_awaited_once_with("💳 No cards configured yet.")
 
     async def test_unknown_category_and_help_show_choices(self):
         for handler, text in [(bot.query, "unknown"), (bot.help_command, "/help"), (bot.categories_command, "/categories")]:
@@ -100,6 +139,52 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
                 await handler(update(text=text), self.context)
                 self.assertIn("grocery", reply.call_args.args[0])
                 self.assertNotIn("failed", reply.call_args.args[0])
+                self.assertTrue(any(ord(c) > 0x2000 for c in reply.call_args.args[0]))
+
+    async def test_card_commands_list_lookup_and_report_missing_or_ambiguous_names(self):
+        self.data["cards"] = [
+            {"id": "sapphire", "name": "Chase Sapphire Preferred", "base_cashback_percent": 1,
+             "rewards": [], "benefits": []},
+            {"id": "flex", "name": "Chase Freedom Flex", "base_cashback_percent": 1,
+             "rewards": [], "benefits": []},
+        ]
+        with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+            await bot.cards_command(update(text="/cards"), self.context)
+            text = reply.call_args.args[0]
+            self.assertIn("💳", text)
+            self.assertIn("/card sapphire", text)
+            self.assertIn("Chase Freedom Flex", text)
+            for args in [["sapphire"], ["CHASE", "SAPPHIRE", "PREFERRED"], ["Sapphire"]]:
+                self.context.args = args
+                await bot.card_command(update(text="/card"), self.context)
+                self.assertIn("💳 Chase Sapphire Preferred", reply.call_args.args[0])
+                self.assertIn("Base", reply.call_args.args[0])
+                self.assertNotIn("Chase Freedom Flex", reply.call_args.args[0])
+            for args, expected in [([], "/card"), (["missing"], "not found"), (["Chase"], "Multiple")]:
+                self.context.args = args
+                await bot.card_command(update(text="/card"), self.context)
+                self.assertIn(expected, reply.call_args.args[0])
+
+    async def test_empty_card_list_and_help_commands(self):
+        with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+            await bot.cards_command(update(text="/cards"), self.context)
+            self.assertIn("💳 No cards", reply.call_args.args[0])
+            await bot.help_command(update(text="/help"), self.context)
+            for command in ["/cards", "/card", "/categories"]:
+                self.assertIn(command, reply.call_args.args[0])
+
+    async def test_exact_id_takes_priority_over_another_cards_name(self):
+        self.data["cards"] = [
+            {"id": "flex", "name": "Chase Freedom Flex", "base_cashback_percent": 1,
+             "rewards": [], "benefits": []},
+            {"id": "other", "name": "Flex", "base_cashback_percent": 2,
+             "rewards": [], "benefits": []},
+        ]
+        self.context.args = ["FLEX"]
+        with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+            await bot.card_command(update(text="/card FLEX"), self.context)
+            self.assertIn("💳 Chase Freedom Flex", reply.call_args.args[0])
+            self.assertNotIn("Multiple", reply.call_args.args[0])
 
     async def test_error_reply_is_authorized_and_brief(self):
         with self.assertLogs("bot", level="ERROR"), patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
