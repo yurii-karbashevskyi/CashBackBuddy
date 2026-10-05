@@ -1,4 +1,4 @@
-"""Owner-only Telegram lookup bot; data is loaded once at startup."""
+"""Allowlisted Telegram lookup bot; data is loaded once at startup."""
 
 from datetime import datetime
 import logging
@@ -104,9 +104,9 @@ def split_reply(text: str, limit: int = 4096) -> list[str]:
     return [chunk for chunk in chunks if chunk.strip()]
 
 
-def is_authorized(update: Update, allowed_user_id: int) -> bool:
+def is_authorized(update: Update, allowed_user_ids: set[int]) -> bool:
     return bool(isinstance(update, Update) and update.effective_user
-                and update.effective_user.id == allowed_user_id
+                and update.effective_user.id in allowed_user_ids
                 and update.effective_chat and update.effective_chat.type == "private"
                 and update.effective_message)
 
@@ -122,7 +122,7 @@ def _categories(data):
 
 
 async def help_command(update, context):
-    if not is_authorized(update, context.bot_data["allowed_user_id"]):
+    if not is_authorized(update, context.bot_data["allowed_user_ids"]):
         return
     data = context.bot_data["data"]
     await _reply(update, "👋 Send a category to see your top three cards.\n"
@@ -134,7 +134,7 @@ async def help_command(update, context):
 
 
 async def categories_command(update, context):
-    if is_authorized(update, context.bot_data["allowed_user_id"]):
+    if is_authorized(update, context.bot_data["allowed_user_ids"]):
         await _reply(update, _categories(context.bot_data["data"]))
 
 
@@ -145,12 +145,12 @@ def _card_list(cards):
 
 
 async def cards_command(update, context):
-    if is_authorized(update, context.bot_data["allowed_user_id"]):
+    if is_authorized(update, context.bot_data["allowed_user_ids"]):
         await _reply(update, _card_list(context.bot_data["data"]["cards"]))
 
 
 async def card_command(update, context):
-    if not is_authorized(update, context.bot_data["allowed_user_id"]):
+    if not is_authorized(update, context.bot_data["allowed_user_ids"]):
         return
     cards = context.bot_data["data"]["cards"]
     name = " ".join(context.args).strip().casefold()
@@ -171,7 +171,7 @@ async def card_command(update, context):
 
 
 async def query(update, context):
-    if not is_authorized(update, context.bot_data["allowed_user_id"]):
+    if not is_authorized(update, context.bot_data["allowed_user_ids"]):
         return
     data = context.bot_data["data"]
     category = normalize_category(data, update.effective_message.text or "")
@@ -186,7 +186,7 @@ async def query(update, context):
 async def error_handler(update, context):
     error = context.error
     logger.error("Unexpected Telegram handler failure", exc_info=(type(error), error, error.__traceback__))
-    if is_authorized(update, context.bot_data["allowed_user_id"]):
+    if is_authorized(update, context.bot_data["allowed_user_ids"]):
         try:
             await _reply(update, "⚠️ Could not process that query; please try again later.")
         except Exception:
@@ -211,15 +211,15 @@ def read_config():
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN: set the token provided by @BotFather")
-    user_id = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
-    if not user_id.isascii() or not user_id.isdecimal() or int(user_id) <= 0:
-        raise ValueError("TELEGRAM_ALLOWED_USER_ID: set your positive numeric Telegram user ID")
-    return token, int(user_id)
+    user_ids = [value.strip() for value in os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").split(",")]
+    if any(not value.isascii() or not value.isdecimal() or int(value) <= 0 for value in user_ids):
+        raise ValueError("TELEGRAM_ALLOWED_USER_ID: set comma-separated positive numeric Telegram user IDs")
+    return token, {int(value) for value in user_ids}
 
 
 def main() -> None:
     try:
-        token, allowed_user_id = read_config()
+        token, allowed_user_ids = read_config()
         data = load_cards(str(Path(__file__).with_name("cards.yaml")))
     except ValueError as error:
         raise SystemExit(f"Startup configuration error: {error}") from None
@@ -230,7 +230,7 @@ def main() -> None:
         logging.getLogger(name).setLevel(logging.CRITICAL)
     try:
         application = Application.builder().token(token).build()
-        application.bot_data.update(data=data, allowed_user_id=allowed_user_id)
+        application.bot_data.update(data=data, allowed_user_ids=allowed_user_ids)
         application.add_handler(CommandHandler(["start", "help"], help_command))
         application.add_handler(CommandHandler("categories", categories_command))
         application.add_handler(CommandHandler("cards", cards_command))

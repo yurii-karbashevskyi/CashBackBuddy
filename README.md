@@ -2,7 +2,7 @@
 
 Personal, read-only Telegram bot for choosing a US credit card by spending category.
 
-Send `grocery`, `groceries`, `restaurant`, `dining`, `entertainment`, or `shopping` to get an emoji-led ranking of your top three cards. Matching ignores case and surrounding whitespace. Only the configured user's private chat receives replies, including help.
+Send `grocery`, `groceries`, `restaurant`, `dining`, `entertainment`, or `shopping` to get an emoji-led ranking of your top three cards. Matching ignores case and surrounding whitespace. Only configured users' private chats receive replies, including help.
 
 The initial `cards.yaml` has no cards, so a supported query returns `💳 No cards configured yet.` No bank connections, transaction tracking, or Telegram editing are included.
 
@@ -42,7 +42,7 @@ The main list omits Red Cross, T-Mobile Dining, and issuer-specific portal categ
 
 For recommendations, send a category or alias as plain text, such as `grocery` or `dining`—not `/grocery`. Unknown slash commands are ignored.
 
-All commands and category queries work only in the configured user's private chat. Other users and group chats receive no replies.
+All commands and category queries work only in configured users' private chats. Other users and group chats receive no replies. All allowed users share the same card data.
 
 ## Run with Docker Compose
 
@@ -54,7 +54,7 @@ The included [compose.yaml](compose.yaml) builds the image from [Dockerfile](Doc
    cp .env.example .env
    ```
 
-2. Set `TELEGRAM_BOT_TOKEN` from `@BotFather` and `TELEGRAM_ALLOWED_USER_ID` to your positive numeric Telegram **user** ID in `.env`. Keep this file private; it is excluded from Git and the image.
+2. Set `TELEGRAM_BOT_TOKEN` from `@BotFather` and `TELEGRAM_ALLOWED_USER_ID` to one or more positive numeric Telegram **user** IDs in `.env`, for example `TELEGRAM_ALLOWED_USER_ID=123456789,987654321`. A single ID still works; whitespace around IDs is ignored and duplicates are removed. Empty entries and invalid IDs prevent startup. Keep this file private; it is excluded from Git and the image.
 
 3. Build and start:
 
@@ -63,6 +63,8 @@ The included [compose.yaml](compose.yaml) builds the image from [Dockerfile](Doc
    ```
 
 View logs with `docker compose logs -f`. Stop with `docker compose down`. Run only one polling instance per bot token.
+
+After changing `.env`, run `docker compose up -d` to recreate the container with the new environment; `docker compose restart` does not reload it.
 
 ## Card data
 

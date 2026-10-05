@@ -115,7 +115,21 @@ class FormatTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, field):
                     bot.read_config()
         with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "placeholder", "TELEGRAM_ALLOWED_USER_ID": "123"}, clear=True):
-            self.assertEqual(bot.read_config(), ("placeholder", 123))
+            self.assertEqual(bot.read_config(), ("placeholder", {123}))
+
+    def test_comma_separated_user_ids_trim_whitespace_and_deduplicate(self):
+        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "placeholder",
+                                    "TELEGRAM_ALLOWED_USER_ID": " 123, 456 ,123 "}, clear=True):
+            self.assertEqual(bot.read_config(), ("placeholder", {123, 456}))
+
+    def test_invalid_entry_rejects_entire_user_id_list(self):
+        for value in ["", "123,", ",123", "123,,456", "123,0", "123,-456",
+                      "123,abc", "123,１２３", "123,1.5", "123,+456"]:
+            with self.subTest(value=value), patch.dict(os.environ, {
+                "TELEGRAM_BOT_TOKEN": "placeholder", "TELEGRAM_ALLOWED_USER_ID": value
+            }, clear=True):
+                with self.assertRaisesRegex(ValueError, "TELEGRAM_ALLOWED_USER_ID"):
+                    bot.read_config()
 
     def test_log_formatter_redacts_token_in_exception(self):
         token = "123456:fake_secret"
@@ -133,11 +147,21 @@ class FormatTests(unittest.TestCase):
 class HandlerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.data = {"timezone": "America/New_York", "categories": {"grocery": {"aliases": ["groceries"]}}, "cards": []}
-        self.context = SimpleNamespace(bot_data={"data": self.data, "allowed_user_id": 123}, error=RuntimeError("failure"), args=[])
+        self.context = SimpleNamespace(bot_data={"data": self.data, "allowed_user_ids": {123, 456}}, error=RuntimeError("failure"), args=[])
+
+    async def test_every_allowed_user_receives_all_handler_replies(self):
+        for user_id in [123, 456]:
+            self.assertTrue(bot.is_authorized(update(user_id), {123, 456}))
+            for handler in [bot.query, bot.help_command, bot.categories_command,
+                            bot.cards_command, bot.card_command, bot.error_handler]:
+                with self.subTest(user_id=user_id, handler=handler.__name__), patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+                    with self.assertLogs("bot", level="ERROR") if handler == bot.error_handler else _no_logs():
+                        await handler(update(user_id), self.context)
+                    reply.assert_awaited_once()
 
     async def test_no_responses_to_other_users_or_groups(self):
-        for denied in [update(456), update(123, "group"), Update(1)]:
-            self.assertFalse(bot.is_authorized(denied, 123))
+        for denied in [update(789), update(123, "group"), update(456, "supergroup"), Update(1)]:
+            self.assertFalse(bot.is_authorized(denied, {123, 456}))
             with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
                 for handler in [bot.query, bot.help_command, bot.categories_command, bot.cards_command, bot.card_command, bot.error_handler]:
                     with self.assertLogs("bot", level="ERROR") if handler == bot.error_handler else _no_logs():
