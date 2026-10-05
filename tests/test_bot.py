@@ -11,6 +11,27 @@ from telegram import Chat, Message, Update, User
 import bot
 
 
+def travel_data():
+    return {
+        "timezone": "America/New_York",
+        "categories": {c: {"aliases": []} for c in
+                       ["travel", "chase_travel", "capital_one_travel"]},
+        "preferred_travel_card": "sapphire",
+        "cards": [
+            {"id": "sapphire", "name": "Chase Sapphire Preferred",
+             "rewards_program": "chase_ultimate_rewards", "base_points_per_dollar": 1,
+             "rewards": [{"category": "travel", "points_per_dollar": 2, "conditions": ["Eligible travel only."]},
+                         {"category": "chase_travel", "points_per_dollar": 5, "conditions": ["Eligible paid bookings only."]}],
+             "benefits": [{"name": "Trip protection", "description": "Coverage subject to terms.", "categories": ["travel", "chase_travel"]}]},
+            {"id": "savor", "name": "Capital One Savor", "base_cashback_percent": 1,
+             "rewards": [{"category": "capital_one_travel", "cashback_percent": 5,
+                          "conditions": ["Hotels, rentals, and activities only; no airfare bonus."]}], "benefits": []},
+            {"id": "base", "name": "Base Card", "base_cashback_percent": 6,
+             "rewards": [], "benefits": []},
+        ],
+    }
+
+
 def update(user_id=123, chat_type="private", text=" GROCERIES "):
     user = User(user_id, "Owner", False)
     chat = Chat(123 if chat_type == "private" else -123, chat_type)
@@ -148,6 +169,66 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.data = {"timezone": "America/New_York", "categories": {"grocery": {"aliases": ["groceries"]}}, "cards": []}
         self.context = SimpleNamespace(bot_data={"data": self.data, "allowed_user_ids": {123, 456}}, error=RuntimeError("failure"), args=[])
+
+    async def test_travel_queries_lead_with_preference_and_keep_portal_conditions(self):
+        self.context.bot_data["data"] = travel_data()
+        for category in ["travel", "chase_travel", "capital_one_travel"]:
+            with self.subTest(category=category), patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+                await bot.query(update(text=category), self.context)
+                text = reply.call_args.args[0]
+                for required in ["Your default: Chase Sapphire Preferred", "Chase Travel", "5x",
+                                 "Book directly", "2x", "Eligible paid bookings only.",
+                                 "Trip protection", "Coverage subject to terms.",
+                                 "Capital One Savor", "no airfare bonus", "points price", "cancellation"]:
+                    self.assertIn(required, text)
+                self.assertLess(text.index("Chase Sapphire Preferred"), text.index("Capital One Savor"))
+                self.assertNotIn("Base Card", text)
+                self.assertNotIn("🥇", text)
+
+    async def test_travel_does_not_invent_preference_when_unconfigured(self):
+        data = travel_data()
+        del data["preferred_travel_card"]
+        self.context.bot_data["data"] = data
+        with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+            await bot.query(update(text="travel"), self.context)
+            text = reply.call_args.args[0]
+            self.assertNotIn("Your default", text)
+            self.assertIn("Chase Sapphire Preferred", text)
+            self.assertIn("Eligible paid bookings only.", text)
+            self.assertIn("Capital One Savor", text)
+
+    async def test_expired_portal_offer_is_not_advertised_or_replaced_with_base_rate(self):
+        data = travel_data()
+        data["cards"][0]["rewards"][1].update(starts_on=date(2000, 1, 1), ends_on=date(2000, 12, 31))
+        self.context.bot_data["data"] = data
+        with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+            await bot.query(update(text="travel"), self.context)
+            text = reply.call_args.args[0]
+            self.assertIn("Your default: Chase Sapphire Preferred", text)
+            self.assertIn("2x", text)
+            self.assertNotIn("5x", text)
+            self.assertNotIn("Eligible paid bookings only.", text)
+
+    async def test_empty_travel_data_keeps_empty_card_reply(self):
+        self.data["categories"] = {"travel": {"aliases": []}}
+        with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+            await bot.query(update(text="travel"), self.context)
+            self.assertEqual(reply.call_args.args[0], "💳 No cards configured yet.")
+
+    async def test_travel_summarizes_benefits_and_links_complete_unverified_terms(self):
+        data = travel_data()
+        data["cards"][0]["benefits"] = [
+            {"name": f"Protection {i}", "description": f"Coverage {i}; terms apply.", "categories": []}
+            for i in range(8)
+        ]
+        self.context.bot_data["data"] = data
+        with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+            await bot.query(update(text="travel"), self.context)
+            text = reply.call_args.args[0]
+            self.assertIn("Protection 0", text)
+            self.assertNotIn("Protection 7", text)
+            self.assertIn("/card sapphire", text)
+            self.assertIn("unverified", text)
 
     async def test_every_allowed_user_receives_all_handler_replies(self):
         for user_id in [123, 456]:

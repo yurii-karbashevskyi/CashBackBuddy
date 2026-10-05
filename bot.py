@@ -32,7 +32,7 @@ CATEGORY_LABELS = {
     "capital_one_travel": "✈️ Capital One Travel (portal)",
     "capital_one_entertainment": "🎟 Capital One Entertainment (portal)",
 }
-# Keep portal queries distinct so their bonuses never apply to ordinary spending.
+# Keep portal reward rules distinct; travel queries combine them with explicit conditions.
 HIDDEN_CATEGORIES = {"chase_travel", "capital_one_travel", "capital_one_entertainment",
                      "t_mobile_dining", "red_cross"}
 
@@ -61,6 +61,58 @@ def format_recommendations(category: str, results: list[dict]) -> str:
     if any("points_per_dollar" in r and (i < 3 or r["reward_percent"] == results[0]["reward_percent"])
            for i, r in enumerate(results)):
         lines.extend(["", POINTS_NOTE])
+    return "\n".join(lines)
+
+
+def format_travel(data: dict, today) -> str:
+    if not data["cards"]:
+        return "💳 No cards configured yet."
+    lines = [category_label("travel"), ""]
+    direct = recommend(data, "travel", today)
+    preferred = next((r for r in direct if r["id"] == data.get("preferred_travel_card")), None)
+    portals = {category: [r for r in recommend(data, category, today) if r["rules"]]
+               for category in ("chase_travel", "capital_one_travel")}
+
+    def offer(label, result):
+        rate = (f"{result['points_per_dollar']:g}x Chase points" if "points_per_dollar" in result
+                else rate_label(result["reward_percent"]))
+        lines.append(f"• {label} — {rate}")
+        conditions = dict.fromkeys(c for rule in result["rules"] for c in rule["conditions"])
+        lines.extend(f"  {condition}" for condition in conditions)
+
+    if preferred:
+        lines.append(f"Your default: {preferred['name']}")
+        if "points_per_dollar" in preferred:
+            lines.append("Earn Chase points with your primary card. Compare Chase Travel’s total price with booking directly.")
+        else:
+            lines.append("Your saved travel preference—not necessarily the highest reward rate.")
+        lines.append("")
+        for category, results in portals.items():
+            match = next((r for r in results if r["id"] == preferred["id"]), None)
+            if match:
+                offer("Through " + category_label(category).removeprefix("✈️ "), match)
+        offer("Book directly" + (" (base rate; no saved travel bonus)" if not preferred["rules"] else ""), preferred)
+        card = next(c for c in data["cards"] if c["id"] == preferred["id"])
+        benefits = [b for b in card["benefits"]
+                    if not b["categories"] or set(b["categories"]) & {"travel", *portals}]
+        lines.extend(f"• {b['name']}: {b['description']}" for b in benefits[:3])
+        lines.append(f"Full benefits and conditions: /card {preferred['id']}")
+    else:
+        lines.append("Booking directly (published rates):")
+        for result in direct:
+            if result["reward_percent"] == direct[0]["reward_percent"]:
+                offer(result["name"] + (" (base rate)" if not result["rules"] else ""), result)
+
+    for category, results in portals.items():
+        alternatives = [r for r in results if not preferred or r["id"] != preferred["id"]]
+        if alternatives:
+            lines.extend(["", ("Alternative: " if preferred else "Booking option: ") + category_label(category)])
+            for result in alternatives:
+                if result["reward_percent"] == alternatives[0]["reward_percent"]:
+                    offer(result["name"], result)
+    lines.extend(["", "💡 Using existing points? Compare the portal’s points price with paying cash before redeeming.",
+                  "⚠️ Compare the total price and cancellation terms before booking.",
+                  "Saved rates and benefits are unverified; confirm issuer terms. Caps, activation, and eligibility are not tracked."])
     return "\n".join(lines)
 
 
@@ -180,7 +232,9 @@ async def query(update, context):
                      + "\n\n💬 Example: " + next(iter(data["categories"])))
         return
     today = datetime.now(ZoneInfo(data["timezone"])).date()
-    await _reply(update, format_recommendations(category, recommend(data, category, today)))
+    text = (format_travel(data, today) if category in {"travel", "chase_travel", "capital_one_travel"}
+            else format_recommendations(category, recommend(data, category, today)))
+    await _reply(update, text)
 
 
 async def error_handler(update, context):

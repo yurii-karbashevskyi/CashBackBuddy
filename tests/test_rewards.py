@@ -47,6 +47,13 @@ class RewardTests(unittest.TestCase):
                 self.assertEqual(recommend(data, "grocery", day)[0]["reward_percent"], rate)
         self.assertEqual(recommend({**data, "cards": []}, "grocery", date.today()), [])
 
+    def test_preferred_travel_card_resolves_id_and_rejects_missing_cards(self):
+        raw = {**fixture(), "preferred_travel_card": " A "}
+        self.assertEqual(self.load(raw).get("preferred_travel_card"), "a")
+        for value in ["missing", "", None, 123]:
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "preferred_travel_card"):
+                self.load({**raw, "preferred_travel_card": value})
+
     def test_ranking_base_fallback_and_all_winning_conditions(self):
         raw = fixture()
         raw["cards"][0]["rewards"].append({"category": "grocery", "cashback_percent": 5,
@@ -64,6 +71,16 @@ class RewardTests(unittest.TestCase):
         raw["cards"][0]["name"] = "beta"
         raw["cards"][0]["base_cashback_percent"] = 6
         self.assertEqual([r["id"] for r in recommend(self.load(raw), "shopping", date.today())], ["a", "b"])
+
+    def test_equal_rates_follow_yaml_order_but_higher_rates_win(self):
+        wells = {"id": "wells", "name": "Wells Fargo Active Cash", "base_cashback_percent": 2}
+        mobile = {"id": "mobile", "name": "T-Mobile Visa", "base_cashback_percent": 2}
+        for cards, expected in [([wells, mobile], ["wells", "mobile"]),
+                                ([mobile, wells], ["mobile", "wells"]),
+                                ([wells, {**mobile, "base_cashback_percent": 3}], ["mobile", "wells"])]:
+            with self.subTest(expected=expected, cards=cards):
+                data = self.load({**fixture(), "cards": cards})
+                self.assertEqual([r["id"] for r in recommend(data, "shopping", date(2026, 10, 4))], expected)
 
     def test_dates_defaults_normalized_keys_and_benefits(self):
         raw = fixture()

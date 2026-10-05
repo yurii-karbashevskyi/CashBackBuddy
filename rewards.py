@@ -147,7 +147,14 @@ def load_cards(path: str) -> dict:
                                _list(raw_benefit.get("categories", []), f"{field}.categories")],
             })
         cards.append(card)
-    return {"timezone": timezone, "categories": categories, "cards": cards}
+    preferred = None
+    if "preferred_travel_card" in data:
+        card_id = _text(data["preferred_travel_card"], "preferred_travel_card").casefold()
+        preferred = next((c["id"] for c in cards if c["id"].casefold() == card_id), None)
+        if preferred is None:
+            raise ValueError("preferred_travel_card: use the ID of a configured card")
+    return {"timezone": timezone, "categories": categories, "cards": cards,
+            "preferred_travel_card": preferred}
 
 
 def normalize_category(data: dict, text: str) -> str | None:
@@ -173,4 +180,5 @@ def recommend(data: dict, category: str, today: date) -> list[dict]:
         if points:
             result["points_per_dollar"] = rate
         results.append(result)
-    return sorted(results, key=lambda r: (-r["reward_percent"], r["name"].casefold(), r["id"]))
+    # Python's stable sort preserves YAML card order for equal reward rates.
+    return sorted(results, key=lambda r: -r["reward_percent"])

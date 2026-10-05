@@ -38,7 +38,9 @@ Category labels use meaningful emojis where available; unfamiliar categories use
 
 Walmart and Target are separate categories, not grocery aliases. Their purchases use base rates unless an explicit merchant reward is configured; grocery and online-shopping bonuses are not inherited automatically.
 
-The main list omits Red Cross, T-Mobile Dining, and issuer-specific portal categories. Existing `chase_travel`, `capital_one_travel`, and `capital_one_entertainment` queries still work when configured, with explicit portal labels; their offers remain visible in `/card`. They are **not** aliases of ordinary `travel` or `entertainment`, so portal-only rates cannot inflate general recommendations. Remove unwanted Red Cross/T-Mobile Dining rules and category definitions together; retain their terms as card benefits if desired, rather than transferring them into general dining rewards.
+The main list omits Red Cross, T-Mobile Dining, and issuer-specific portal categories. `travel`, `chase_travel`, and `capital_one_travel` queries open one travel overview: your preferred card first, direct-booking and portal rates shown separately, plus relevant protections and portal alternatives with their conditions. Portal alternatives require an active explicit portal rule; base-rate cards do not fill a podium. `capital_one_entertainment` remains a separate qualified query. Portal reward rules remain distinct internally so their rates never apply to ordinary spending.
+
+Set the optional top-level `preferred_travel_card` in your `cards.yaml` to a configured card ID, for example `preferred_travel_card: chase_sapphire_preferred`. It is a personal preference, not a claim of the highest reward rate. The card must exist; invalid references prevent startup. Without this setting, travel shows direct-booking rates and portal options without inventing a preference. Rates, conditions, and benefits come from your saved data; add Sapphire Preferred using the Chase points schema below, not cashback percentages.
 
 For recommendations, send a category or alias as plain text, such as `grocery` or `dining`—not `/grocery`. Unknown slash commands are ignored.
 
@@ -107,7 +109,7 @@ cards:
 - Required: `timezone`, nonempty `categories`, `cards`; each card needs a unique nonempty `id`, `name`, and nonnegative finite base rate (`base_cashback_percent` or the Chase points fields below).
 - `rewards`, `benefits`, and `conditions` default to empty lists. Rates are **total percentages**, not additions to base. Reward categories reference canonical category keys, not aliases.
 - Omit both dates for ongoing rewards; otherwise supply both ISO dates. Boundaries are inclusive. Future/expired offers do not apply; the highest active rate or base rate wins.
-- The top three cards appear, ordered by descending cashback-equivalent return, then name, then ID. Full card details show all configured offers and conditions, including future/expired offers with their dates; they are not stackable.
+- The top three cards appear, ordered by descending cashback-equivalent return. Equal rates preserve the order of entries in the YAML `cards` list: put preferred cards first to control ties (for example, Wells Fargo before T-Mobile). Full card details show all configured offers and conditions, including future/expired offers with their dates; they are not stackable.
 - Benefit `categories: []` (or omitted) means every category; benefits never affect ranking.
 - Use a valid IANA timezone. Rules are evaluated in that timezone on **each query**, so date transitions need no restart.
 - Data loads once at startup: restart after editing. Invalid types, dates, references, duplicate YAML keys, alias collisions, and boolean/negative/nonfinite rates are rejected. YAML merges that override keys are also rejected; use explicit unique fields.
