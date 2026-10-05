@@ -8,4 +8,10 @@ categories:
     aliases: []
   shopping:
     aliases: []
+  walmart:
+    aliases: [wal-mart]
+  target:
+    aliases: []
+  travel:
+    aliases: [general travel]
 cards: []

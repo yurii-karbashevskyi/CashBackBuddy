@@ -26,13 +26,19 @@ Tied highest returns show `Best choices`, including winners outside the top thre
 
 | Command | Response |
 | --- | --- |
-| `/start` | Show usage, supported categories, and commands. |
+| `/start` | Show a short usage example and commands, without the category list. |
 | `/help` | Show the same help as `/start`. |
-| `/categories` | List the category names configured in `cards.yaml`. |
+| `/categories` | List the main spending categories configured in `cards.yaml`. |
 | `/cards` | List your cards and their detail commands. |
 | `/card <name or ID>` | Full rewards, dates, conditions, benefits, and valuation assumptions. |
 
 Card lookup ignores case. Exact IDs take priority, then exact names; a partial name works if it identifies just one card. Ambiguous matches list choices instead of selecting one. Card IDs must be unique ignoring case.
+
+Category labels use meaningful emojis where available; unfamiliar categories use plain text rather than a generic tag emoji.
+
+Walmart and Target are separate categories, not grocery aliases. Their purchases use base rates unless an explicit merchant reward is configured; grocery and online-shopping bonuses are not inherited automatically.
+
+The main list omits Red Cross, T-Mobile Dining, and issuer-specific portal categories. Existing `chase_travel`, `capital_one_travel`, and `capital_one_entertainment` queries still work when configured, with explicit portal labels; their offers remain visible in `/card`. They are **not** aliases of ordinary `travel` or `entertainment`, so portal-only rates cannot inflate general recommendations. Remove unwanted Red Cross/T-Mobile Dining rules and category definitions together; retain their terms as card benefits if desired, rather than transferring them into general dining rewards.
 
 For recommendations, send a category or alias as plain text, such as `grocery` or `dining`—not `/grocery`. Unknown slash commands are ignored.
 

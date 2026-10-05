@@ -20,11 +20,25 @@ CATEGORY_LABELS = {
     "grocery": "🛒 Groceries", "restaurant": "🍽 Dining",
     "entertainment": "🎟 Entertainment", "shopping": "🛍 Shopping",
     "travel": "✈️ Travel", "gas": "⛽ Gas",
+    "online_shopping": "💻 Online Shopping", "ev_charging": "⚡ EV Charging",
+    "drugstore": "💊 Drugstores", "wholesale_club": "📦 Wholesale Clubs",
+    "streaming": "📺 Streaming", "utilities": "💡 Utilities",
+    "lyft": "🚕 Lyft", "transit": "🚆 Transit",
+    "amazon": "Amazon", "whole_foods": "🥬 Whole Foods",
+    "walmart": "Walmart", "target": "🎯 Target",
+    "car_rental": "🚗 Car Rentals", "hotel": "🏨 Hotels",
+    "home_improvement": "🔨 Home Improvement", "t_mobile_purchases": "📱 T-Mobile Devices & Accessories",
+    "chase_travel": "✈️ Chase Travel (portal)",
+    "capital_one_travel": "✈️ Capital One Travel (portal)",
+    "capital_one_entertainment": "🎟 Capital One Entertainment (portal)",
 }
+# Keep portal queries distinct so their bonuses never apply to ordinary spending.
+HIDDEN_CATEGORIES = {"chase_travel", "capital_one_travel", "capital_one_entertainment",
+                     "t_mobile_dining", "red_cross"}
 
 
 def category_label(category: str) -> str:
-    return CATEGORY_LABELS.get(category, "🏷 " + category.replace("_", " ").title())
+    return CATEGORY_LABELS.get(category, category.replace("_", " ").title())
 
 
 def rate_label(rate, points=False):
@@ -103,7 +117,8 @@ async def _reply(update, text):
 
 
 def _categories(data):
-    return "📂 Categories\n" + "\n".join(f"{category_label(c)} ({c})" for c in data["categories"])
+    return "📂 Categories\n" + "\n".join(f"{category_label(c)} ({c})" for c in data["categories"]
+                                        if c not in HIDDEN_CATEGORIES)
 
 
 async def help_command(update, context):
@@ -115,7 +130,6 @@ async def help_command(update, context):
                  + "\n\n📂 /categories — spending categories"
                  + "\n💳 /cards — your cards"
                  + "\n📖 /card <name or ID> — full card details"
-                 + "\n\n" + _categories(data)
                  + "\n\n⚠️ Rankings use published rates; check /card for conditions.")
 
 

@@ -26,6 +26,11 @@ def fixture():
 
 
 class RewardTests(unittest.TestCase):
+    def test_default_config_accepts_walmart_and_target_as_distinct_categories(self):
+        data = load_cards(str(Path(__file__).resolve().parents[1] / "cards.yaml"))
+        self.assertEqual(normalize_category(data, "Walmart"), "walmart")
+        self.assertEqual(normalize_category(data, "TARGET"), "target")
+
     def load(self, raw):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cards.yaml"

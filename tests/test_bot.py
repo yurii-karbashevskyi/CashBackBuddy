@@ -19,6 +19,26 @@ def update(user_id=123, chat_type="private", text=" GROCERIES "):
 
 
 class FormatTests(unittest.TestCase):
+    def test_categories_use_specific_emojis_or_plain_text_not_generic_tags(self):
+        data = {"categories": {c: {} for c in ["ev_charging", "drugstore", "streaming", "walmart", "target", "custom_category"]}}
+        text = bot._categories(data)
+        for label in ["⚡ EV Charging", "💊 Drugstores", "📺 Streaming", "Walmart", "Target", "Custom Category"]:
+            self.assertIn(label, text)
+        self.assertNotIn("🏷", text)
+
+    def test_main_list_hides_special_offers_but_retains_qualified_queries(self):
+        keys = ["travel", "entertainment", "walmart", "target", "chase_travel",
+                "capital_one_travel", "capital_one_entertainment", "red_cross", "t_mobile_dining"]
+        data = {"categories": {c: {"aliases": []} for c in keys}}
+        text = bot._categories(data)
+        for key in keys[:4]:
+            self.assertIn(f"({key})", text)
+        for key in keys[4:]:
+            self.assertNotIn(f"({key})", text)
+        self.assertEqual(bot.normalize_category(data, "chase_travel"), "chase_travel")
+        self.assertIn("portal", bot.category_label("chase_travel").lower())
+        self.assertIn("portal", bot.category_label("capital_one_entertainment").lower())
+
     def test_empty_and_complete_recommendation(self):
         self.assertEqual(bot.format_recommendations("grocery", []), "💳 No cards configured yet.")
         result = [{"id": "a", "name": "Alpha", "reward_percent": 5,
@@ -172,6 +192,18 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
             await bot.help_command(update(text="/help"), self.context)
             for command in ["/cards", "/card", "/categories"]:
                 self.assertIn(command, reply.call_args.args[0])
+
+    async def test_help_leaves_category_list_to_categories_command(self):
+        self.data["categories"]["restaurant"] = {"aliases": ["dining"]}
+        with patch.object(Message, "reply_text", new_callable=AsyncMock) as reply:
+            await bot.help_command(update(text="/start"), self.context)
+            text = reply.call_args.args[0]
+            self.assertIn("/categories", text)
+            self.assertIn("Example: grocery", text)
+            self.assertNotIn("🍽 Dining", text)
+            self.assertNotIn("📂 Categories", text)
+            await bot.categories_command(update(text="/categories"), self.context)
+            self.assertIn("🍽 Dining", reply.call_args.args[0])
 
     async def test_exact_id_takes_priority_over_another_cards_name(self):
         self.data["cards"] = [
